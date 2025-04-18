@@ -1,0 +1,303 @@
+
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Stoppursrapport</title>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: black;
+      color: #39FF14;
+      font-family: 'Arial', sans-serif;
+      text-align: center;
+    }
+    button {
+      margin: 5px;
+      padding: 10px;
+      font-size: 1em;
+      background-color: #39FF14;
+      color: black;
+      border: none;
+      cursor: pointer;
+    }
+    #controls {
+      margin-top: 20px;
+    }
+    #lapList {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-top: 20px;
+    }
+    .lapRow {
+      display: flex;
+      flex-wrap: wrap;
+      width: 90%;
+      justify-content: space-between;
+      align-items: center;
+      padding: 5px;
+      border: 1px solid #39FF14;
+      margin-bottom: 5px;
+    }
+    .lapTime, .lapNote {
+      flex: 1;
+      padding: 5px;
+      word-wrap: break-word;
+    }
+    .lapNote input {
+      width: 100%;
+      box-sizing: border-box;
+      border: none;
+      background: transparent;
+      color: #39FF14;
+      text-align: center;
+    }
+    .colorSelectors {
+      display: flex;
+      gap: 5px;
+      justify-content: center;
+      align-items: center;
+      margin-left: 10px;
+    }
+    .colorDot {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid #39FF14;
+      cursor: pointer;
+      opacity: 0.4;
+    }
+    .colorDot.green { background-color: lime; }
+    .colorDot.yellow { background-color: yellow; }
+    .colorDot.red { background-color: red; }
+    .colorDot.selected {
+      opacity: 1;
+      border: 2px solid white;
+    }
+    #summaryChart, #summaryText {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <button onclick="startStopwatch()">Start</button>
+    <button onclick="lap()">Lap</button>
+    <button onclick="stopStopwatch()">Stop</button>
+    <button onclick="resetStopwatch()">Reset</button>
+    <button onclick="saveToFile()">Exportera CSV</button>
+    <button onclick="saveFullReport()">Spara rapport som bild</button>
+  </div>
+
+  <div id="reportArea" style="margin: 20px;">
+    <h2 style="color: #39FF14;">Stoppursrapport</h2>
+    <div id="reportTimestamp" style="color: white; font-size: 0.9em; margin-bottom: 10px;"></div>
+    <div id="stopwatch" style="font-size: 2em; color: red;">00:00:00.00</div>
+    <div id="lapList"></div>
+    <canvas id="summaryChart" width="300" height="200"></canvas>
+    <div id="summaryText" style="color: white; font-size: 1em;"></div>
+  </div>
+
+  <script>
+    let stopwatchInterval;
+    let lapCount = 1;
+    let lapTimestamps = [];
+
+    function startStopwatch() {
+      clearInterval(stopwatchInterval);
+      stopwatchInterval = setInterval(updateStopwatch, 10);
+    }
+
+    function stopStopwatch() {
+      clearInterval(stopwatchInterval);
+      generateSummaryChart();
+    }
+
+    function resetStopwatch() {
+      clearInterval(stopwatchInterval);
+      document.getElementById('stopwatch').innerText = '00:00:00.00';
+      lapCount = 1;
+      lapTimestamps = [];
+      document.getElementById('lapList').innerHTML = '';
+      document.getElementById('summaryChart').getContext('2d').clearRect(0, 0, 300, 200);
+      document.getElementById('summaryText').innerText = '';
+      document.getElementById('reportTimestamp').innerText = '';
+    }
+
+    function updateStopwatch() {
+      let stopwatch = document.getElementById('stopwatch');
+      let timeArray = stopwatch.innerText.split(/[:.]/).map(Number);
+      let hours = timeArray[0];
+      let minutes = timeArray[1];
+      let seconds = timeArray[2];
+      let hundredths = timeArray[3] + 1;
+
+      if (hundredths === 100) {
+        hundredths = 0;
+        seconds += 1;
+        if (seconds === 60) {
+          seconds = 0;
+          minutes += 1;
+          if (minutes === 60) {
+            minutes = 0;
+            hours += 1;
+          }
+        }
+      }
+
+      stopwatch.innerText = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(hundredths).padStart(2, '0')}`;
+    }
+
+    function lap() {
+      let stopwatchTime = document.getElementById('stopwatch').innerText;
+      let currentTimestamp = new Date().getTime();
+
+      let lapList = document.getElementById('lapList');
+      let lapRow = document.createElement('div');
+      lapRow.classList.add('lapRow');
+
+      let lapTimeCell = document.createElement('div');
+      lapTimeCell.classList.add('lapTime');
+
+      if (lapTimestamps.length > 0) {
+        let prevTimestamp = lapTimestamps[lapTimestamps.length - 1];
+        let timeDifference = currentTimestamp - prevTimestamp;
+        lapTimeCell.innerText = formatTimeDifference(timeDifference);
+      } else {
+        lapTimeCell.innerText = stopwatchTime;
+      }
+
+      let lapNoteCell = document.createElement('div');
+      lapNoteCell.classList.add('lapNote');
+      let inputField = document.createElement('input');
+      inputField.type = 'text';
+      inputField.value = 'No Note';
+      lapNoteCell.appendChild(inputField);
+
+      let colorSelectors = document.createElement('div');
+      colorSelectors.classList.add('colorSelectors');
+
+      ['green', 'yellow', 'red'].forEach(color => {
+        let dot = document.createElement('div');
+        dot.classList.add('colorDot', color);
+        dot.dataset.color = color;
+        dot.onclick = () => {
+          let siblings = dot.parentElement.querySelectorAll('.colorDot');
+          siblings.forEach(d => d.classList.remove('selected'));
+          dot.classList.add('selected');
+        };
+        colorSelectors.appendChild(dot);
+      });
+
+      lapRow.appendChild(lapTimeCell);
+      lapRow.appendChild(lapNoteCell);
+      lapRow.appendChild(colorSelectors);
+      lapList.appendChild(lapRow);
+
+      lapTimestamps.push(currentTimestamp);
+      lapCount++;
+    }
+
+    function formatTimeDifference(timeDifference) {
+      let hundredths = Math.floor((timeDifference % 1000) / 10);
+      let seconds = Math.floor((timeDifference / 1000) % 60);
+      let minutes = Math.floor((timeDifference / (1000 * 60)) % 60);
+      let hours = Math.floor(timeDifference / (1000 * 60 * 60));
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(hundredths).padStart(2, '0')}`;
+    }
+
+    function saveToFile() {
+      let csvContent = "Lap,Time,Note,Color\n";
+      let rows = document.querySelectorAll('.lapRow');
+      rows.forEach((row, index) => {
+        let time = row.querySelector('.lapTime').innerText;
+        let note = row.querySelector('.lapNote input').value;
+        let colorDot = row.querySelector('.colorDot.selected');
+        let color = colorDot ? colorDot.dataset.color : '';
+        csvContent += `${index + 1},"${time}","${note}","${color}"\n`;
+      });
+
+      let blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      let a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `Stopwatch_${getCurrentDate()}.csv`;
+      a.target = "_blank";
+      a.click();
+    }
+
+    function getCurrentDate() {
+      let now = new Date();
+      let year = now.getFullYear();
+      let month = String(now.getMonth() + 1).padStart(2, '0');
+      let day = String(now.getDate()).padStart(2, '0');
+      let hours = String(now.getHours()).padStart(2, '0');
+      let minutes = String(now.getMinutes()).padStart(2, '0');
+      let seconds = String(now.getSeconds()).padStart(2, '0');
+      return `${year}${month}${day}_${hours}${minutes}${seconds}`;
+    }
+
+    function generateSummaryChart() {
+      const rows = document.querySelectorAll('.lapRow');
+      const colorTotals = { green: 0, yellow: 0, red: 0 };
+
+      let prevTimestamp = lapTimestamps[0] || Date.now();
+
+      rows.forEach((row, index) => {
+        let colorDot = row.querySelector('.colorDot.selected');
+        let color = colorDot ? colorDot.dataset.color : null;
+        let timestamp = lapTimestamps[index + 1] || Date.now();
+        let duration = timestamp - prevTimestamp;
+        prevTimestamp = timestamp;
+        if (color) colorTotals[color] += duration;
+      });
+
+      const canvas = document.getElementById('summaryChart');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const maxVal = Math.max(colorTotals.green, colorTotals.yellow, colorTotals.red, 1);
+      const barWidth = 60;
+      const spacing = 30;
+      const baseY = 180;
+
+      ['green', 'yellow', 'red'].forEach((color, i) => {
+        const value = colorTotals[color];
+        const height = Math.round((value / maxVal) * 150);
+        ctx.fillStyle = color;
+        ctx.fillRect(i * (barWidth + spacing) + 20, baseY - height, barWidth, height);
+        ctx.fillStyle = 'white';
+        ctx.textAlign = 'center';
+        ctx.fillText(msToTime(value), i * (barWidth + spacing) + 20 + barWidth / 2, baseY + 15);
+      });
+
+      const summaryText = `Total tid – Grön: ${msToTime(colorTotals.green)} | Gul: ${msToTime(colorTotals.yellow)} | Röd: ${msToTime(colorTotals.red)}`;
+      document.getElementById('summaryText').innerText = summaryText;
+
+      const now = new Date();
+      const timestamp = now.toLocaleString('sv-SE');
+      document.getElementById('reportTimestamp').innerText = `Exporttid: ${timestamp}`;
+    }
+
+    function msToTime(duration) {
+      const minutes = Math.floor(duration / 60000);
+      const seconds = Math.floor((duration % 60000) / 1000);
+      const hundredths = Math.floor((duration % 1000) / 10);
+      return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(hundredths).padStart(2, '0')}`;
+    }
+
+    function saveFullReport() {
+      const report = document.getElementById('reportArea');
+      html2canvas(report, { scale: 2 }).then(canvas => {
+        const link = document.createElement('a');
+        link.download = `Stopwatch_Report_${getCurrentDate()}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      });
+    }
+  </script>
+</body>
+</html>
